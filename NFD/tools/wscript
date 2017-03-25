@@ -1,0 +1,71 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+from waflib import Utils, Context
+
+top = '..'
+
+TOOLS_DEPENDENCY = 'core-objects NDN_CXX BOOST LIBRESOLV'
+
+def build(bld):
+    # single object tools
+    # tools/example-tool.cpp should a self-contained tool with a main function
+    # and it's built into build/bin/example-tool.
+    # These tools cannot be unit-tested.
+    for i in bld.path.ant_glob(['*.cpp']):
+        name = str(i)[:-len(".cpp")]
+        bld(features='cxx cxxprogram',
+            target="../bin/%s" % name,
+            source=[i],
+            use=TOOLS_DEPENDENCY
+            )
+
+
+    # sub-directory tools
+    # tools/example-tool/**/*.cpp is compiled and linked into build/bin/example-tool
+    # tools/example-tool/main.cpp must exist and it should contain the main function.
+    # All other objects are collected into 'tools-objects' and can be unit-tested.
+    testableObjects = []
+    for name in bld.path.ant_glob(['*'], dir=True, src=False):
+        mainFile = bld.path.find_node(['%s/main.cpp' % name])
+        if mainFile is None:
+          continue # not a C++ tool
+        srcFiles = bld.path.ant_glob(['%s/**/*.cpp' % name], excl=['%s/main.cpp' % name])
+        if len(srcFiles) > 0:
+            srcObjects = 'tools-%s-objects' % name
+            bld(features='cxx',
+                name=srcObjects,
+                source=srcFiles,
+                use=TOOLS_DEPENDENCY,
+                includes='%s' % name,
+                )
+            testableObjects.append(srcObjects)
+
+            bld(features='cxx cxxprogram',
+                target="../bin/%s" % name,
+                source=[mainFile],
+                use=TOOLS_DEPENDENCY + ' ' + srcObjects,
+                includes='%s' % name,
+                )
+        else:
+            bld(features='cxx cxxprogram',
+                target="../bin/%s" % name,
+                source=[mainFile],
+                use=TOOLS_DEPENDENCY,
+                includes='%s' % name,
+                )
+
+    bld(name='tools-objects',
+        export_includes='.',
+        use=testableObjects)
+
+    bld(features="subst",
+        source=bld.path.ant_glob(['*.sh', '*.py']),
+        target=['../bin/%s' % node.change_ext('')
+                for node in bld.path.ant_glob(['*.sh', '*.py'])],
+        install_path="${BINDIR}",
+        chmod=Utils.O755,
+        VERSION=Context.g_module.VERSION
+       )
+
+    bld.install_files("${DATAROOTDIR}/ndn",
+                      bld.path.ant_glob('nfd-status-http-server-files/*'))

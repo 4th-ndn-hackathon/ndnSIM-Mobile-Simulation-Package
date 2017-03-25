@@ -1,0 +1,18 @@
+# Emacs temp files
+*~
+
+# macOS stuff
+.DS_*
+
+# waf build system
+.waf-1*
+.waf3-*
+.lock*
+build/
+
+# Compiled python code
+*.pyc
+*.pyo
+
+# Other
+VERSION

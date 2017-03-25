@@ -1,0 +1,15 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+from waflib import Utils
+
+top = '..'
+
+def build(bld):
+    for i in bld.path.ant_glob(['*.cpp']):
+        name = str(i)[:-len(".cpp")]
+        bld(features='cxx cxxprogram',
+            target=name,
+            source=[i],
+            use='ndn-cxx boost-tests-base BOOST',
+            includes='..',
+            install_path=None)
