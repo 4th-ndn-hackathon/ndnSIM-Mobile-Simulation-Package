@@ -10,6 +10,7 @@
 #include "ns3/ndnSIM/helper/ndn-app-helper.hpp"
 #include "ns3/ndnSIM/helper/ndn-stack-helper.hpp"
 #include <ns3/ndnSIM/helper/ndn-global-routing-helper.hpp>
+#include "ns3/animation-interface.h"
 
 #include <algorithm>
 #include <vector>
@@ -181,7 +182,8 @@ int main (int argc, char *argv[])
   
   Simulator::Stop(Seconds(simulationEnd));
 
-  
+  std::string animFile = "v2v-test.xml";
+  AnimationInterface anim(animFile);
   Simulator::Run ();
   return 0;
 }
