@@ -383,9 +383,9 @@ Forwarder::onIncomingData(Face& inFace, const Data& data)
 
   // foreach pending downstream
   for (Face* pendingDownstream : pendingDownstreams) {
-    if (pendingDownstream == &inFace) {
+    /*if (pendingDownstream == &inFace) {
       continue;
-    }
+    }*/
     // goto outgoing Data pipeline
     this->onOutgoingData(data, *pendingDownstream);
   }
