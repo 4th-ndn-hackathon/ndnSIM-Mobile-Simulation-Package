@@ -22,6 +22,7 @@
 #ifndef NDN_CXX_LP_TAGS_HPP
 #define NDN_CXX_LP_TAGS_HPP
 
+#include "geo-tag.hpp"
 #include "cache-policy.hpp"
 #include "../tag-host.hpp"
 
@@ -62,6 +63,13 @@ typedef SimpleTag<uint64_t, 13> CongestionMarkTag;
  * This tag can be attached to Interest, Data, Nack.
  */
 typedef SimpleTag<uint64_t, 0x60000000> HopCountTag;
+
+/** \class GeoCordTag
+ *  \brief a packet tag for GeoTag field
+ *
+ * This tag can be attached to Interest, Data, Nack.
+ */
+typedef SimpleTag<GeoTag, 14> GeoCordTag;
 
 } // namespace lp
 } // namespace ndn
