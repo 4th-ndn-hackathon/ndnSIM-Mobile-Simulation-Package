@@ -61,6 +61,10 @@ using namespace ::ndn::lp;
       computeWaitingTime(lp::GeoTag previousHop, Ptr<ns3::Packet> Packet, bool isLocal);
 
 
+      void
+      sendPacketOut(lp::Packet packet);
+      
+
       //virtual void
       //retransmitPacket(Ptr<ns3::Packet> packet);
 
@@ -85,6 +89,8 @@ using namespace ::ndn::lp;
       };
 
       std::set<std::tuple<lp::Packet, Name, uint64_t, int>, comp> m_queue; // packet queue
+      
+      Time m_retxTime;
     };
 
 
