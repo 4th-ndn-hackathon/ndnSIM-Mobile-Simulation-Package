@@ -11,6 +11,7 @@
 #include <ndn-cxx/data.hpp>
 #include <ndn-cxx/lp/packet.hpp>
 #include <vector>
+#include <cmath>
 #include "ns3/random-variable-stream.h"
 
 
@@ -47,6 +48,7 @@ namespace ndn {
                                       true /*promiscuous mode*/);
 
       m_maxRetxCounter = 3;
+      m_retxTime = Seconds(0.05);
     }
 
     V2VNetDeviceTransport::~V2VNetDeviceTransport()
@@ -87,18 +89,15 @@ namespace ndn {
         NS_FATAL_ERROR("Mobility model has to be installed on the node");
         return;
       }
-      Vector3D currentPosition = mobility->GetPosition();
       //todo add tag (we may need to remove previous tag if present)
       ::ndn::lp::Packet lpPacket = ::ndn::lp::Packet(packet.packet);
 
       //::ndn::lp::GeoTag geoCordTag = lpPacket.get<::ndn::lp::GeoTagField>();
 
       if (!lpPacket.has<::ndn::lp::GeoTagField>()) {
-        m_geoTag.setPosX(currentPosition.x);
-        m_geoTag.setPosY(currentPosition.y);
-        lpPacket.set<::ndn::lp::GeoTagField>(m_geoTag);
         isLocal = true;
       }
+      
 
       // convert NFD packet to NS3 packet
       BlockHeader header(packet);
@@ -109,15 +108,7 @@ namespace ndn {
 
       //computing waiting time
       Time waitingTime;
-      /*lp::GeoTag previousHopTag;
-      if(ns3Packet->PeekPacketTag(previousHopTag)){
-        //we are forwarding a packet
-        waitingTime = computeWaitingTime(previousHopTag, ns3Packet, false);
-      } else {
-        //pkt has been generated locally. We will just wait a small random time
-        waitingTime = computeWaitingTime(previousHopTag, ns3Packet, true);
-      }*/
-
+      
       //todo: we need to check the hop count (should we do this in the forwarding strategy?)
 
       // send the NS3 packet (we need to add the packet to the pending pkts queue)
@@ -131,10 +122,16 @@ namespace ndn {
       std::tuple<lp::Packet, Name, uint64_t, int> t(lpPacket, name,
         (Simulator::Now() + computeWaitingTime(lpPacket.get<::ndn::lp::GeoTagField>(), ns3Packet, isLocal)).GetMilliSeconds(), 1);
 
+      m_queue.insert(t);
 
 
       if(!m_scheduledSend.IsRunning()){
         m_scheduledSend =  Simulator::Schedule(waitingTime, &V2VNetDeviceTransport::SendFromQueue, this);
+      } else {
+        Simulator::Cancel(m_scheduledSend);
+        m_scheduledSend =  Simulator::Schedule( std::get<3>(*m_queue.begin()) > Simulator::Now() ?
+                                               Seconds(std::get<3>(*m_queue.begin()) - Simulator::Now()) : Seconds(0),
+                                               &V2VNetDeviceTransport::SendFromQueue, this);
       }
     }
 
@@ -148,6 +145,8 @@ namespace ndn {
     {
       NS_LOG_FUNCTION(device << p << protocol << from << to << packetType);
 
+
+      
       // Convert NS3 packet to NFD packet
       Ptr<ns3::Packet> packet = p->Copy();
 
@@ -160,6 +159,15 @@ namespace ndn {
 
       auto nfdPacket = Packet(std::move(header.getBlock()));
 
+      ::ndn::lp::Packet lpPacket = ::ndn::lp::Packet(nfdPacket.packet);
+
+      Name name = Name(nfdPacket.packet.get(::ndn::tlv::Name));
+      
+      //todo extract the GeoTag set by the sender
+      //check if this packet acks any packets in the queue:
+      //same name and type (anything about location of the sender?). probably we need to store somewhere the location of the  previous hop to evalaute if there is any push progress
+      //decide if we need to forward the packet to the upper layer
+      
       this->receive(std::move(nfdPacket));
     }
 
@@ -171,16 +179,37 @@ namespace ndn {
 
 
 
-    /*void
-    sendPacketWithDelay(Ptr<ns3::Packet> packet, Time delay)
+    void
+    V2VNetDeviceTransport::sendPacketOut(lp::Packet packet)
     {
+      Ptr<MobilityModel> mobility = m_node->GetObject<MobilityModel> ();
+      if (mobility == 0) {
+        NS_FATAL_ERROR("Mobility model has to be installed on the node");
+        return;
+      }
+      Vector3D currentPosition = mobility->GetPosition();
+      
+      ::ndn::lp::Packet lpPacket = std::get<0>(*m_queue.begin());
 
+      m_geoTag.setPosX(currentPosition.x);
+      m_geoTag.setPosY(currentPosition.y);
+      lpPacket.set<::ndn::lp::GeoTagField>(m_geoTag);
+
+      
+      
+      
+      Packet p = Packet(lpPacket.wireEncode());
+      BlockHeader header(p);
+      
+      Ptr<ns3::Packet> ns3Packet = Create<ns3::Packet>();
+      ns3Packet->AddHeader(header);
+
+      
+    
       m_netDevice->Send(ns3Packet, m_netDevice->GetBroadcast(),
                         L3Protocol::ETHERNET_FRAME_TYPE);
-
-      Simulator::Schedule(delay, &V2VNetDeviceTransport::SendFromQueue, this);
     }
-    */
+  
 
     void
     V2VNetDeviceTransport::SendFromQueue()
@@ -190,6 +219,37 @@ namespace ndn {
       //increment retx counter and remove pkt with retx counter > m_maxRetxCounter;
 
       //schedule next SendFromQueue
+      
+      
+      
+      while(m_queue.begin()!= m_queue.end())
+      {
+        if(std::get<3>(*m_queue.begin())<=Simulator::Now())
+        {
+          sendPacketOut(std::get<0>(*m_queue.begin()));
+        }
+        
+        std::tuple<lp::Packet, Name, uint64_t, int> el = *m_queue.begin();
+        m_queue.erase(m_queue.begin());
+
+        //increment retx
+        int retx = std::get<3>(el)+1;
+        
+        if(retx <= m_maxRetxCounter)
+        {
+          std::tuple<lp::Packet, Name, uint64_t, int> newEl(std::get<0>(el), std::get<1>(el),
+            (Simulator::Now() + m_retxTime).GetMilliSeconds(), retx);
+
+          m_queue.insert(newEl);
+        }
+        break;
+      }
+      
+      if(m_queue.size()>0){
+        m_scheduledSend =  Simulator::Schedule( std::get<3>(*m_queue.begin()) > Simulator::Now() ?
+                                               Seconds(std::get<3>(*m_queue.begin()) - Simulator::Now()) : Seconds(0),
+                                               &V2VNetDeviceTransport::SendFromQueue, this);
+      }
     }
 
 
