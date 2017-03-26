@@ -69,7 +69,7 @@ typedef SimpleTag<uint64_t, 0x60000000> HopCountTag;
  *
  * This tag can be attached to Interest, Data, Nack.
  */
-typedef SimpleTag<GeoTag, 14> GeoCordTag;
+typedef SimpleTag<GeoTag, 0x60000001> GeoCordTag;
 
 } // namespace lp
 } // namespace ndn

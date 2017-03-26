@@ -27,6 +27,7 @@
 #include "sequence.hpp"
 #include "cache-policy.hpp"
 #include "nack-header.hpp"
+#include "geo-tag.hpp"
 
 #include <boost/mpl/set.hpp>
 
@@ -78,6 +79,11 @@ typedef detail::FieldDecl<field_location_tags::Header,
                           tlv::HopCountTag> HopCountTagField;
 BOOST_CONCEPT_ASSERT((Field<HopCountTagField>));
 
+typedef detail::FieldDecl<field_location_tags::Header,
+                          GeoTag,
+                          tlv::GeoTag> GeoTagField;
+BOOST_CONCEPT_ASSERT((Field<GeoTagField>));
+
 /**
  * The value of the wire encoded field is the data between the provided iterators. During
  * encoding, the data is copied from the Buffer into the wire buffer.
@@ -100,7 +106,8 @@ typedef boost::mpl::set<
   CachePolicyField,
   IncomingFaceIdField,
   CongestionMarkField,
-  HopCountTagField
+  HopCountTagField,
+  GeoTagField
   > FieldSet;
 
 } // namespace lp
