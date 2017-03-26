@@ -5,6 +5,9 @@
 #include "ns3/ndnSIM/NFD/daemon/face/transport.hpp"
 #include "ns3/ndnSIM/ndn-cxx/lp/geo-tag.hpp"
 
+#include <ndn-cxx/lp/packet.hpp>
+#include <ndn-cxx/lp/tags.hpp>
+
 #include "ns3/net-device.h"
 #include "ns3/log.h"
 #include "ns3/packet.h"
@@ -14,8 +17,10 @@
 #include "ns3/point-to-point-net-device.h"
 #include "ns3/channel.h"
 namespace ns3 {
-  namespace ndn {
-    
+namespace ndn {
+
+using namespace ::ndn::lp;
+
     /**
      * \ingroup ndn-face
      * \brief ndnSIM-specific V2V transport
@@ -29,49 +34,61 @@ namespace ns3 {
                          ::ndn::nfd::FaceScope scope = ::ndn::nfd::FACE_SCOPE_NON_LOCAL,
                          ::ndn::nfd::FacePersistency persistency = ::ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                          ::ndn::nfd::LinkType linkType = ::ndn::nfd::LINK_TYPE_POINT_TO_POINT);
-      
+
       ~V2VNetDeviceTransport();
-      
+
       Ptr<NetDevice>
       GetNetDevice() const;
-      
+
     private:
       virtual void
       beforeChangePersistency(::ndn::nfd::FacePersistency newPersistency) override;
-      
+
       virtual void
       doClose() override;
-      
+
       virtual void
       doSend(Packet&& packet) override;
-      
+
       void
       receiveFromNetDevice(Ptr<NetDevice> device,
                            Ptr<const ns3::Packet> p,
                            uint16_t protocol,
                            const Address& from, const Address& to,
                            NetDevice::PacketType packetType);
-      
+
       virtual Time
       computeWaitingTime(lp::GeoTag previousHop, Ptr<ns3::Packet> Packet, bool isLocal);
-      
-      
+
+
       //virtual void
       //retransmitPacket(Ptr<ns3::Packet> packet);
-      
+
       virtual void
       SendFromQueue();
-      
+
       Ptr<NetDevice> m_netDevice; ///< \brief Smart pointer to NetDevice
       Ptr<Node> m_node;
-      
+
       EventId m_scheduledSend;
-      
+
       int m_maxRetxCounter;
+
+      lp::GeoTag m_geoTag; // GeoTag object
+
+      struct comp
+      {
+        bool operator() (std::tuple<lp::Packet, Name, uint64_t, int> a, std::tuple<lp::Packet, Name, uint64_t, int> b) const
+        {
+          return std::get<2>(a) < std::get<2>(b);
+        }
+      };
+
+      std::set<std::tuple<lp::Packet, Name, uint64_t, int>, comp> m_queue; // packet queue
     };
-    
-    
-    
+
+
+
     class Item
     {
       public:
@@ -79,7 +96,6 @@ namespace ns3 {
       Time nextTranmissionTime;
       uint32_t m_retxCount;
 
-      
     };
   } // namespace ndn
 } // namespace ns3
