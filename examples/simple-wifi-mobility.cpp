@@ -4,10 +4,6 @@
  *
  **/
 
-// simple-wifi-mobility
-
-// NS_LOG=ndn.Consumer:ndn.Producer ./waf --run=simple-wifi-mobility 2>&1 | tee log.txt
-
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
 #include "ns3/mobility-module.h"
@@ -23,6 +19,7 @@
 #include <vector>
 #include <string>
 
+
 NS_LOG_COMPONENT_DEFINE ("simple-wifi-mobility");
 
 using namespace std;
@@ -30,7 +27,16 @@ using namespace std;
 namespace ns3 {
 
 /**
- * This scenario simulates a tree topology (using topology reader module)
+ * DESCRIPTION: 
+ * This scenario provides a basic Wifi AP (as infrastucture) and two mobile STA nodes
+ * which do active association to an AP node when within the AP's range. Association
+ * is done by fetching the Bssid of current AP. After association, mobile STA will
+ * send unicast unicast interests to AP which reaches the producer ans fetches data back.
+ * Data is broadcast by AP, so other STA asking for same data will also receive. A global
+ * Routing is used, as Default routing doesn't forward interest from AP to producer. This
+ * is expected to be fixed later.
+ *
+ * The scenario simulates a tree topology (using topology reader module)
  *
  *                                    /--------\
  *                           +------->|  root  |<--------+
@@ -52,64 +58,41 @@ namespace ns3 {
  *   \------/      \------/      \------/      \------/      \------/      \------/
  *
  *
+ *  |m2|-->     |m1|--->
+ *
+ *
  * To run scenario and see what is happening, use the following command:
  *
  *     ./waf --run=simple-wifi-mobility
+ * 
+ * With LOGGING: e.g.
+ *
+ *     NS_LOG=ndn.Consumer:ndn.Producer ./waf --run=simple-wifi-mobility 2>&1 | tee log.txt
  */
-  
-  Ptr<ConstantVelocityMobilityModel> cvmm1, cvmm2;
-  double position_interval = 1.0;
-  
-  // two callbacks
-  void printPosition() 
-  {
-    Vector thePos = cvmm2->GetPosition();
-    Simulator::Schedule(Seconds(position_interval), &printPosition);
-    std::cout << "position: " << thePos << std::endl;
-  }
-
-  void stopMover() 
-  {
-    cvmm2 -> SetVelocity(Vector(0,0,0));
-  }
 
   int main (int argc, char *argv[])
   {
     std::string phyMode ("DsssRate1Mbps");
-    double rss = -80; // -dBm
-    uint32_t packetSize = 1000; // bytes
-    uint32_t numPackets = 1;
-    uint32_t nWifi = 1;
     uint32_t wifiSta = 2;
-    double interval = 1.0; // seconds
-    bool verbose = false;
 
-    int bottomrow = 6;            // number of bottom-row nodes
+    int bottomrow = 6;            // number of AP nodes
     int spacing = 200;            // between bottom-row nodes
-    //int mheight = 150;            // height of mover above bottom row
-    //int brheight = 50;            // height of bottom row
+    int range = 110;
     double endtime = 20.0;
-    double speed = (double)(bottomrow*spacing)/endtime; 
+    double speed = (double)(bottomrow*spacing)/endtime; //setting speed to span full sim time 
 
-    string animFile = "mobility-animation.xml";
+    string animFile = "ap-mobility-animation.xml";
 
     CommandLine cmd;
-    cmd.AddValue ("nWifi", "Wifi Stations (Consumers)", nWifi);
-    cmd.AddValue ("phyMode", "Wifi Phy mode", phyMode);
-    cmd.AddValue ("rss", "received signal strength", rss);
-    cmd.AddValue ("packetSize", "size of application packet sent", packetSize);
-    cmd.AddValue ("numPackets", "number of packets generated", numPackets);
-    cmd.AddValue ("interval", "interval (seconds) between packets", interval);
-    cmd.AddValue ("verbose", "turn on all WifiNetDevice log components", verbose);
     cmd.AddValue ("animFile", "File Name for Animation Output", animFile);
     cmd.Parse (argc, argv);
-
-    // Reading file for topology setup
+    
+    ////// Reading file for topology setup
     AnnotatedTopologyReader topologyReader("", 1);
-    topologyReader.SetFileName("scenarios/x-topo.txt");
+    topologyReader.SetFileName("src/ndnSIM/examples/x-topo.txt");
     topologyReader.Read();
 
-    //Getting containers for the producer/wifi-ap
+    ////// Getting containers for the producer/wifi-ap
     Ptr<Node> producer = Names::Find<Node>("root");
     Ptr<Node> wifiApNodes[6] = {Names::Find<Node>("ap1"), 
                                 Names::Find<Node>("ap2"),
@@ -124,79 +107,75 @@ namespace ns3 {
                                 Names::Find<Node>("r4"),
                                 Names::Find<Node>("r5"),};
 
-    // disable fragmentation for frames below 2200 bytes
+    ////// disable fragmentation, RTS/CTS for frames below 2200 bytes and fix non-unicast data rate
     Config::SetDefault("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue("2200"));
-    // turn off RTS/CTS for frames below 2200 bytes
     Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue("2200"));
-    // Fix non-unicast data rate to be the same as that of unicast
     Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode", StringValue(phyMode));
 
-    // The below set of helpers will help us to put together the wifi NICs we want 
+    ////// The below set of helpers will help us to put together the wifi NICs we want 
     WifiHelper wifi;
-    
-    if(verbose)
-    {
-      wifi.EnableLogComponents (); // Turn on all Wifi logging
-    }
 
     wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
     YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
 
-    // This is one parameter that matters when using FixedRssLossModel
-    // set it to zero; otherwise, gain will be added
+    ////// This is one parameter that matters when using FixedRssLossModel
+    ////// set it to zero; otherwise, gain will be added
     // wifiPhy.Set ("RxGain", DoubleValue (0) );
 
-    // ns-3 supports RadioTap and Prism tracing extensions for 802.11b
+    ////// ns-3 supports RadioTap and Prism tracing extensions for 802.11b
     wifiPhy.SetPcapDataLinkType (YansWifiPhyHelper::DLT_IEEE802_11_RADIO);
 
     YansWifiChannelHelper wifiChannel;
 
     wifiChannel.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel");
+    // wifiChannel.AddPropagationLoss("ns3::NakagamiPropagationLossModel");
 
-    // The below FixedRssLossModel will cause the rss to be fixed regardless
-    // of the distance between the two stations, and the transmit power
+    ////// The below FixedRssLossModel will cause the rss to be fixed regardless
+    ////// of the distance between the two stations, and the transmit power
     // wifiChannel.AddPropagationLoss ("ns3::FixedRssLossModel","Rss",DoubleValue(rss));
 
-    // the following has an absolute cutoff at distance > 250
+    ////// the following has an absolute cutoff at distance > range (range == radius)
     wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel", 
-                                    "MaxRange", DoubleValue(110)); // radius
+                                    "MaxRange", DoubleValue(range));
     wifiPhy.SetChannel (wifiChannel.Create ());
     wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                   "DataMode", StringValue (phyMode),
                                   "ControlMode", StringValue (phyMode));
 
-    // Setup the rest of the upper mac
-    // Setting SSID
+    ////// Setup the rest of the upper mac
+    ////// Setting SSID, optional. Modified net-device to get Bssid, mandatory for AP unicast
     Ssid ssid = Ssid ("wifi-default");
+    // wifi.SetRemoteStationManager ("ns3::ArfWifiManager");
 
-    // Add a non-QoS upper mac of STAs, and disable rate control
+    ////// Add a non-QoS upper mac of STAs, and disable rate control
     NqosWifiMacHelper wifiMacHelper = NqosWifiMacHelper::Default ();
+    ////// Active associsation of STA to AP via probing.
     wifiMacHelper.SetType ("ns3::StaWifiMac", "Ssid", SsidValue (ssid),
                            "ActiveProbing", BooleanValue (true),
-                           "ProbeRequestTimeout", TimeValue(Seconds(0.5)));
+                           "ProbeRequestTimeout", TimeValue(Seconds(0.25)));
 
+    ////// Creating 2 mobile nodes
     NodeContainer consumers;
     consumers.Create(wifiSta);
 
     NetDeviceContainer staDevice = wifi.Install (wifiPhy, wifiMacHelper, consumers);
     NetDeviceContainer devices = staDevice;
 
-    // setup AP.
+    ////// Setup AP.
     NqosWifiMacHelper wifiMac = NqosWifiMacHelper::Default ();
     wifiMac.SetType ("ns3::ApWifiMac", "Ssid", SsidValue (ssid),
                      "BeaconGeneration", BooleanValue(false));
-                     //"BeaconInterval", TimeValue(Seconds(2.5)));
     for (int i = 0; i < bottomrow; i++)
     {
         NetDeviceContainer apDevice = wifi.Install (wifiPhy, wifiMac, wifiApNodes[i]);
         devices.Add (apDevice);
     }
 
-    // Note that with FixedRssLossModel, the positions below are not
-    // used for received signal strength.
+    ////// Note that with FixedRssLossModel, the positions below are not
+    ////// used for received signal strength.
     
-    // set positions. 
-    MobilityHelper sessile;               // for fixed nodes
+    ////// set positions for APs 
+    MobilityHelper sessile;
     Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
     int Xpos = 0;
     for (int i=0; i < bottomrow; i++) {
@@ -204,38 +183,42 @@ namespace ns3 {
         Xpos += spacing;
     }
     sessile.SetPositionAllocator (positionAlloc);
-    //sessile.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
     for (int i = 0; i < bottomrow; i++) {
         sessile.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
         sessile.Install (wifiApNodes[i]);
     }
-
-    // ConstantVelocityMobilityModel is a subclass of MobilityModel
-    Vector pos1 (0, 0, 0);
-    Vector vel1 (speed, 0, 0);
-    Vector pos2 (-100, 0, 0); //bottomrow*spacing, opposite direction
-    Vector vel2 (speed, 0, 0);
+    
+    ////// Setting mobility model and movement parameters for mobile nodes
+    ////// ConstantVelocityMobilityModel is a subclass of MobilityModel
     MobilityHelper mobile; 
-    mobile.SetMobilityModel("ns3::ConstantVelocityMobilityModel"); // no Attributes
+    mobile.SetMobilityModel("ns3::ConstantVelocityMobilityModel");
     mobile.Install(consumers);
-    cvmm1 = consumers.Get(0)->GetObject<ConstantVelocityMobilityModel> ();
-    cvmm1->SetPosition(pos1);
-    cvmm1->SetVelocity(vel1);
-    cvmm2 = consumers.Get(1)->GetObject<ConstantVelocityMobilityModel> ();
-    cvmm2->SetPosition(pos2);
-    cvmm2->SetVelocity(vel2);
-    //std::cout << "position: " << cvmm->GetPosition() << " velocity: " << cvmm->GetVelocity() << std::endl;
-    //std::cout << "mover mobility model: " << mobile.GetMobilityModelType() << std::endl; // just for confirmation
+    ////// Setting each mobile consumer 100m apart from each other
+    int nxt = 0;
+    for (uint32_t i=0; i<wifiSta ; i++) {
+        Ptr<ConstantVelocityMobilityModel> cvmm = consumers.Get(i)->GetObject<ConstantVelocityMobilityModel> ();
+        Vector pos (0-nxt, 0, 0);
+        Vector vel (speed, 0, 0);
+        cvmm->SetPosition(pos);
+        cvmm->SetVelocity(vel);
+        nxt += 100;
+    }
+    
+    // std::cout << "position: " << cvmm->GetPosition() << " velocity: " << cvmm->GetVelocity() << std::endl;
+    // std::cout << "mover mobility model: " << mobile.GetMobilityModelType() << std::endl; // just for confirmation
 
     // 3. Install NDN stack on all nodes
     NS_LOG_INFO("Installing NDN stack");
     ndn::StackHelper ndnHelper;
-    ndnHelper.InstallAll();
+    //ndnHelper.InstallAll();
     ndnHelper.SetOldContentStore("ns3::ndn::cs::Lru", "MaxSize", "1000");
+    //ndnHelper.SetDefaultRoutes(true);
     //ndnHelper.SetOldContentStore("ns3::ndn::cs::Nocache");
+    ndnHelper.InstallAll();
 
     // Choosing forwarding strategy
     ndn::StrategyChoiceHelper::InstallAll("/prefix", "/localhost/nfd/strategy/best-route");
+    //ndn::StrategyChoiceHelper::InstallAll("/", "/localhost/nfd/strategy/best-route");
 
     // Installing global routing interface on all nodes
     ndn::GlobalRoutingHelper ndnGlobalRoutingHelper;
@@ -246,15 +229,16 @@ namespace ns3 {
     // Consumer Helpers
     ndn::AppHelper consumerHelper("ns3::ndn::ConsumerCbr");
     consumerHelper.SetPrefix("/root/prefix");
+    //consumerHelper.SetPrefix("/test/prefix");
     consumerHelper.SetAttribute("Frequency", DoubleValue(10.0));
     consumerHelper.Install(consumers.Get(0)).Start(Seconds(0.0));
-    consumerHelper.Install(consumers.Get(1)).Start(Seconds(3.2));
+    consumerHelper.Install(consumers.Get(1)).Start(Seconds(0.0));
     // Producer Helpers
     ndn::AppHelper producerHelper("ns3::ndn::Producer");
     producerHelper.SetAttribute("PayloadSize", StringValue("1024"));
     // Register /root prefix with global routing controller and
     // install producer that will satisfy Interests in /root namespace
-    ndnGlobalRoutingHelper.AddOrigins("/root", producer);
+    ndnGlobalRoutingHelper.AddOrigins("/root", producer);    
     producerHelper.SetPrefix("/root");
     producerHelper.Install(producer);
 
@@ -262,16 +246,17 @@ namespace ns3 {
     ndn::GlobalRoutingHelper::CalculateRoutes();
 
     // Tracing
-    wifiPhy.EnablePcap ("simple-wifi-mobility", devices); // check this
-
-    // uncomment the next line to verify that node 'mover' is actually moving
-    Simulator::Schedule(Seconds(position_interval), &printPosition);
+    wifiPhy.EnablePcap ("simple-wifi-mobility", devices);
 
     Simulator::Stop (Seconds (endtime));
 
     AnimationInterface anim (animFile);
 
-    ndn::L3RateTracer::Install(routers[0],"simple-wifi-mobility-trace.txt", Seconds(0.5));
+    for (uint32_t i=0; i<wifiSta ; i++) {
+      string str = "simple-wifi-trace" + std::to_string(i+1) + ".txt";
+      ndn::L3RateTracer::Install(consumers.Get(i), str, Seconds(endtime-0.5));
+    }
+    
     //ndn::CsTracer::Install(routers[0],"simple-wifi-mobility-trace.txt", Seconds(1.0));
     
     Simulator::Run ();

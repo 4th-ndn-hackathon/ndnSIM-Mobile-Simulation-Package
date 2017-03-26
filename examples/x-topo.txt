@@ -14,7 +14,7 @@ r2  	NA	  200	600
 r3  	NA	  200	1000
 r4  	NA	  600	400
 r5  	NA	  600	800
-root	NA	  1200 70
+root	NA	  1200 700
 
 link
 
