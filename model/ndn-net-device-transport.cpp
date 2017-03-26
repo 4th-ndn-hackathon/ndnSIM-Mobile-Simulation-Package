@@ -26,6 +26,8 @@
 #include <ndn-cxx/encoding/block.hpp>
 #include <ndn-cxx/interest.hpp>
 #include <ndn-cxx/data.hpp>
+#include "ns3/wifi-net-device.h"
+#include "ns3/sta-wifi-mac.h"
 
 NS_LOG_COMPONENT_DEFINE("ndn.NetDeviceTransport");
 
@@ -95,7 +97,15 @@ NetDeviceTransport::doSend(Packet&& packet)
   ns3Packet->AddHeader(header);
 
   // send the NS3 packet
-  m_netDevice->Send(ns3Packet, m_netDevice->GetBroadcast(),
+  Address dest = m_netDevice->GetBroadcast();
+  Ptr<ns3::WifiNetDevice> wifiDev = m_netDevice->GetObject<ns3::WifiNetDevice>();
+  if (wifiDev != nullptr) {
+    Ptr<ns3::StaWifiMac> staMac = wifiDev->GetMac()->GetObject<ns3::StaWifiMac>();
+    if (staMac != nullptr) {
+      dest = staMac->GetBssid();
+    }
+  }
+  m_netDevice->Send(ns3Packet, dest,
                     L3Protocol::ETHERNET_FRAME_TYPE);
 }
 
